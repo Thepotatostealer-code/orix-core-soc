@@ -1,0 +1,26 @@
+name: GameServer.Detect.UnauthorizedOP
+description: |
+  Surfaces recent changes to per-server operator/whitelist/config files across
+  all hosted game server volumes — the in-game equivalent of a privilege
+  escalation or backdoor account being created.
+
+parameters:
+  - name: VolumesGlobOps
+    default: "/GAMESERVER_VOLUMES_ROOT/*/ops.json"
+  - name: VolumesGlobProperties
+    default: "/GAMESERVER_VOLUMES_ROOT/*/server.properties"
+
+sources:
+  - name: OPSFiles
+    query: |
+      SELECT FullPath, Mtime,
+             parse_json(data=read_file(filename=FullPath)) AS OPS
+      FROM glob(globs=VolumesGlobOps)
+      WHERE Mtime > timestamp(epoch=now() - 86400)
+
+  - name: ServerProperties
+    query: |
+      SELECT FullPath, Mtime,
+             parse_csv(filename=FullPath, delimiter='=') AS Config
+      FROM glob(globs=VolumesGlobProperties)
+      WHERE Mtime > timestamp(epoch=now() - 86400)

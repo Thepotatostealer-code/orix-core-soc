@@ -1,0 +1,27 @@
+name: GameServer.Detect.ContainerEscape
+description: |
+  Audits running Docker containers for privileged mode and other configuration
+  choices commonly associated with container escape — complements (does not
+  replace) Wazuh's real-time docker-listener alerting on these same conditions.
+
+sources:
+  - name: RunningContainers
+    query: |
+      SELECT * FROM execve(
+        argv=['docker', 'ps', '--format', '{{.ID}}|{{.Image}}|{{.Names}}|{{.Status}}']
+      )
+
+  - name: PrivilegedCheck
+    query: |
+      LET container_ids = SELECT ContainerID FROM source(name="RunningContainers")
+
+      SELECT * FROM foreach(
+        row=container_ids,
+        query={
+          SELECT ContainerID,
+                 execve(argv=['docker', 'inspect', '--format',
+                              '{{.HostConfig.Privileged}}', ContainerID]).Stdout AS Privileged
+          FROM scope()
+          WHERE Privileged =~ 'true'
+        }
+      )

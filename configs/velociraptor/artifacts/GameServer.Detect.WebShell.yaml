@@ -1,0 +1,20 @@
+name: GameServer.Detect.WebShell
+description: |
+  Scans the hosting panel's PHP files for common web shell execution patterns.
+  Tuned for a Pterodactyl-style panel deployment — adjust PanelRoot for your
+  actual install path.
+
+parameters:
+  - name: PanelRoot
+    default: "/PANEL_WEB_ROOT/**/*.php"
+
+sources:
+  - name: PHPShells
+    query: |
+      SELECT FullPath, Mtime, Size,
+             read_file(filename=FullPath) AS Content
+      FROM glob(globs=PanelRoot)
+      WHERE
+        Content =~ '(?i)(eval\s*\(|base64_decode|shell_exec|system\s*\(|passthru|exec\s*\(|file_put_contents|fopen.*http)'
+        OR
+        Content =~ '(?i)(<\?php\s+\$[a-z]+\s*=\s*[\'"]\w+[\'"]\s*;\s*\$[a-z]+\s*=\s*)'

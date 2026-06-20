@@ -1,0 +1,23 @@
+name: GameServer.Detect.Miner
+description: |
+  Flags high-CPU processes matching known cryptominer command-line patterns,
+  process/binary name mismatches (a common hiding technique), and cron jobs
+  referencing common dropper/downloader commands.
+
+sources:
+  - name: SuspiciousProcesses
+    query: |
+      SELECT Name, Pid, Cmdline, Exe,
+             hash(path=Exe) AS Hash,
+             CPUPercent, MemoryInfo.RSS AS RSS
+      FROM pslist()
+      WHERE
+        CPUPercent > 50
+        OR Cmdline =~ '(?i)(xmrig|minerd|stratum|pool|wallet|cryptonight|randomx)'
+        OR Name != basename(path=Exe)
+
+  - name: CronJobs
+    query: |
+      SELECT FullPath, Data, Mtime
+      FROM glob(globs="/var/spool/cron/**/*")
+      WHERE Data =~ '(?i)(wget|curl|nc |bash -i|python -c|perl -e)'

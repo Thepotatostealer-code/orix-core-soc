@@ -1,0 +1,39 @@
+name: GameServer.Detect.BackdoorPlugin
+description: |
+  Detects recently modified or suspiciously named plugin JARs across hosted
+  game server volumes, then runs a YARA pass for common backdoor indicators
+  (reflection-based execution, process spawning, network calls embedded in
+  plugin code).
+
+  Paths are sanitized placeholders — see docs/03-velociraptor-edr-setup.md.
+
+parameters:
+  - name: GameServerVolumesGlob
+    default: "/GAMESERVER_VOLUMES_ROOT/*/plugins/*.jar"
+  - name: YaraRules
+    default: |
+      rule SuspiciousPlugin {
+        strings:
+          $a = "java.net.URL" nocase
+          $b = "Runtime.exec" nocase
+          $c = "ProcessBuilder" nocase
+          $d = "base64" nocase
+        condition:
+          any of them
+      }
+
+sources:
+  - name: PluginFiles
+    query: |
+      SELECT FullPath, Mtime, Size, hash(path=FullPath) AS Hash
+      FROM glob(globs=GameServerVolumesGlob)
+      WHERE
+        Mtime > timestamp(epoch=now() - 86400)
+        OR FullPath =~ '(?i)(backdoor|rat|trojan|miner|stealer|logger)'
+
+  - name: PluginYARA
+    query: |
+      SELECT * FROM yara(
+        rules=YaraRules,
+        files=PluginFiles.FullPath
+      )

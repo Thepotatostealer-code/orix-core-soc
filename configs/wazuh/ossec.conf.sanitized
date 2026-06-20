@@ -1,0 +1,182 @@
+<!--
+  Wazuh Agent Configuration — Game Server Hosting Node
+  SANITIZED FOR PUBLIC PORTFOLIO USE
+  All IPs, hostnames, and identifying paths replaced with placeholders.
+  See /docs/02-wazuh-hardening.md for the reasoning behind every section below.
+-->
+<ossec_config>
+
+  <client>
+    <server>
+      <address>MANAGER_IP_REDACTED</address>
+      <port>1514</port>
+      <protocol>tcp</protocol>
+    </server>
+    <config-profile>ubuntu, ubuntu24, ubuntu24.04</config-profile>
+    <notify_time>10</notify_time>
+    <time-reconnect>60</time-reconnect>
+    <auto_restart>yes</auto_restart>
+    <crypto_method>aes</crypto_method>
+  </client>
+
+  <!--
+    FILE INTEGRITY MONITORING
+    file_limit raised from the 100k default to 1M — see hardening doc for why
+    the default caps out within ~1hr on a Docker + game-server workload.
+  -->
+  <syscheck>
+    <disabled>no</disabled>
+    <frequency>43200</frequency>  <!-- 12h scheduled baseline scan -->
+    <scan_on_start>yes</scan_on_start>
+
+    <!-- High-value paths: real-time + whodata (instant, attributed alerts) -->
+    <directories realtime="yes" whodata="yes" report_changes="yes">/etc/ssh</directories>
+    <directories realtime="yes" whodata="yes" report_changes="yes">/root/.ssh</directories>
+    <directories realtime="yes" whodata="yes">/etc/sudoers.d</directories>
+    <directories realtime="yes" whodata="yes">/etc/systemd/system</directories>
+    <directories realtime="yes" whodata="yes">/etc/docker</directories>
+    <directories realtime="yes" whodata="yes">/etc/crontab</directories>
+    <directories realtime="yes" whodata="yes">/etc/cron.d</directories>
+
+    <!-- Game server paths: real-time, no whodata (volume too high for full attribution) -->
+    <directories realtime="yes">GAMESERVER_PANEL_ROOT/plugins</directories>
+    <directories realtime="yes">GAMESERVER_PANEL_ROOT/ops.json</directories>
+    <directories realtime="yes">GAMESERVER_PANEL_ROOT/whitelist.json</directories>
+    <directories realtime="yes">GAMESERVER_PANEL_ROOT/banned-players.json</directories>
+    <directories realtime="yes">GAMESERVER_PANEL_ROOT/server.properties</directories>
+
+    <!-- System baseline: scheduled scan only, not real-time -->
+    <directories>/etc,/usr/bin,/usr/sbin,/bin,/sbin,/boot</directories>
+
+    <!-- Single file watches -->
+    <directories realtime="yes" whodata="yes">/etc/passwd</directories>
+    <directories realtime="yes" whodata="yes">/etc/shadow</directories>
+    <directories realtime="yes" whodata="yes">/etc/sudoers</directories>
+
+    <!-- Tuned to handle Docker + Pterodactyl file volume without capping -->
+    <database>
+      <entries>1000000</entries>
+    </database>
+
+    <!-- Exclusions: data that changes constantly and isn't security-relevant -->
+    <ignore>/var/lib/docker/overlay2</ignore>
+    <ignore>/var/lib/docker/containers</ignore>
+    <ignore>/run/containerd</ignore>
+    <ignore>/run/docker.sock</ignore>
+    <ignore>/run/docker/netns</ignore>
+    <ignore type="sregex">.log$|.tmp$|.cache$</ignore>
+    <ignore>GAMESERVER_VOLUMES_ROOT/*/world</ignore>
+    <ignore>GAMESERVER_VOLUMES_ROOT/*/cache</ignore>
+    <ignore>GAMESERVER_VOLUMES_ROOT/*/libraries</ignore>
+    <ignore>GAMESERVER_VOLUMES_ROOT/*/steamapps</ignore>
+    <ignore>PTERODACTYL_BACKUPS_ROOT</ignore>
+
+    <!-- Performance safeguards -->
+    <process_priority>10</process_priority>
+    <max_eps>100</max_eps>
+    <diff>
+      <disabled>no</disabled>
+      <skip_nfs>yes</skip_nfs>
+    </diff>
+  </syscheck>
+
+  <!-- ROOTKIT / MALWARE DETECTION -->
+  <rootcheck>
+    <disabled>no</disabled>
+    <check_unixaudit>yes</check_unixaudit>
+    <check_files>yes</check_files>
+    <check_trojans>yes</check_trojans>
+    <check_dev>yes</check_dev>
+    <check_sys>yes</check_sys>
+    <check_pids>yes</check_pids>
+    <check_ports>yes</check_ports>
+    <check_if>yes</check_if>
+    <frequency>21600</frequency>  <!-- 6h -->
+    <ignore>/var/lib/docker</ignore>
+  </rootcheck>
+
+  <!-- SYSTEM INVENTORY -->
+  <wodle name="syscollector">
+    <disabled>no</disabled>
+    <interval>1h</interval>
+    <scan_on_start>yes</scan_on_start>
+    <hardware>yes</hardware>
+    <os>yes</os>
+    <network>yes</network>
+    <packages>yes</packages>
+    <ports all="yes">yes</ports>
+    <processes>yes</processes>
+  </wodle>
+
+  <!-- SECURITY CONFIGURATION ASSESSMENT -->
+  <sca>
+    <enabled>yes</enabled>
+    <scan_on_start>yes</scan_on_start>
+    <interval>12h</interval>
+    <skip_nfs>yes</skip_nfs>
+  </sca>
+
+  <!-- DOCKER CONTAINER EVENT MONITORING -->
+  <wodle name="docker-listener">
+    <disabled>no</disabled>
+    <interval>10m</interval>
+    <attempts>5</attempts>
+  </wodle>
+
+  <!-- COMMAND-BASED MONITORING
+       NOTE: requires logcollector.remote_commands=1 in local_internal_options.conf
+       or these blocks are silently ignored — see troubleshooting log. -->
+  <localfile>
+    <log_format>full_command</log_format>
+    <command>docker stats --format "{{.Container}} {{.Name}} {{.CPUPerc}} {{.MemUsage}} {{.MemPerc}} {{.NetIO}}" --no-stream</command>
+    <frequency>120</frequency>
+  </localfile>
+
+  <localfile>
+    <log_format>full_command</log_format>
+    <command>ss -tulpn | grep LISTEN | wc -l</command>
+    <frequency>360</frequency>
+  </localfile>
+
+  <localfile>
+    <log_format>full_command</log_format>
+    <command>cat /proc/loadavg | awk '{print $1}'</command>
+    <frequency>60</frequency>
+  </localfile>
+
+  <localfile>
+    <log_format>full_command</log_format>
+    <command>ps aux | grep -c "[d]efunct"</command>
+    <frequency>180</frequency>
+  </localfile>
+
+  <localfile>
+    <log_format>full_command</log_format>
+    <command>find /tmp -type f -mmin -60 | wc -l</command>
+    <frequency>180</frequency>
+  </localfile>
+
+  <!-- LOG SOURCES -->
+  <localfile>
+    <log_format>journald</log_format>
+    <location>journald</location>
+  </localfile>
+
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/auth.log</location>
+  </localfile>
+
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/ufw.log</location>
+  </localfile>
+
+  <!-- ACTIVE RESPONSE -->
+  <active-response>
+    <disabled>no</disabled>
+    <ca_store>/var/ossec/etc/wpk_root.pem</ca_store>
+    <ca_verification>yes</ca_verification>
+  </active-response>
+
+</ossec_config>
